@@ -25,7 +25,6 @@ impl Config {
         Ok(from_str(&config)?)
     }
 
-
     pub fn do_it_all(&self, cli: &Cli) -> Result<(),Box<dyn std::error::Error>> {
 
         let download_path = self.disk.get_download_location(&cli.output_name);
@@ -66,6 +65,11 @@ pub struct Aria2c {
 impl Aria2c {
 
     fn run_aria2c(&self, speed: Option<u64>, url: &str, output: &Path) {
+        if self.skip_if_local_and_copy(url,output) {
+            //short cut to copy over file
+            return;
+        }
+
         let mut cmd = Command::new(&self.path);
         cmd.current_dir(output.parent().expect("could not recover parent"));
         cmd.args(&self.default_args);
@@ -88,6 +92,24 @@ impl Aria2c {
                 Option::None => panic!("aira2c returned known error code"),
             },
             Err(e) => panic!("aira2c failed {:?}", e)
+        }
+    }
+
+    fn skip_if_local_and_copy(&self, url: &str, output: &Path) -> bool {
+        // this is a real URL
+        if url.trim().starts_with("http") {
+            return false;
+        }
+        let input_path = Path::new(url);
+        if !input_path.is_file() {
+            return false;
+        }
+
+        match std::fs::copy(input_path,output) {
+            Ok(_) => true,
+            Err(e) => {
+                panic!("error:'{:?}' while copying:'{:?}' to:'{:?}'", e, input_path, output);
+            }
         }
     }
 }
