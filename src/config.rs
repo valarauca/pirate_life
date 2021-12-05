@@ -2,7 +2,8 @@
 use std::{
     process::Command,
     path::{Path,PathBuf},
-    collections::{HashMap}
+    collections::{HashMap},
+    borrow::{Cow,ToOwned},
 };
 
 use regex::{RegexSet};
@@ -59,8 +60,6 @@ impl Config {
         Ok(())
     }
 }
-
-
 
 #[derive(Clone,Debug,Serialize,Deserialize,Default)]
 pub struct Aria2c {
@@ -188,31 +187,29 @@ impl PathManager {
     {
 
         // check for fixed path override
-        if fixed_path {
-            match canonicalize(&output_name.as_ref().to_string_lossy()) {
-                Ok(x) => {
-                    let buf = PathBuf::from(x);
-                    if buf.has_root() {
-                        return buf;
-                    } else {
-                        panic!("cannont canonicalize:'{:?}'", output_name.as_ref());
-                    }
+        let output_path: String = if fixed_path {
+            output_name.as_ref().to_string_lossy().to_string()
+        } else {
+            // set the default store location
+            let mut location: PathBuf = self.store_dir.clone();
+            // check if a peferential override is given
+            if let Some(preference) = self.preference_location(&output_name) {
+                location = preference;
+            }
+            location.push(&output_name.as_ref().file_name().unwrap());
+            location.as_path().to_string_lossy().to_string()
+        };
+        match canonicalize(&output_path) {
+            Ok(x) => {
+                let buf = PathBuf::from(x);
+                if buf.has_root() {
+                    buf
+                } else {
+                    panic!("cannont canonicalize:'{:?}'", output_name.as_ref());
                 }
-                Err(e) => panic!("error:'{:?}' cannot canonicalize:'{:?}'", e, output_name.as_ref())
-            };
+            }
+            Err(e) => panic!("error:'{:?}' cannot canonicalize:'{:?}'", e, output_name.as_ref())
         }
-
-        // set the default store location
-        let mut location = self.store_dir.clone();
-
-        // check if a peferential override is given
-        if let Some(preference) = self.preference_location(&output_name) {
-            location = preference;
-        }
-
-        
-        location.push(&output_name.as_ref().file_name().unwrap());
-        location
     }
 
     fn preference_location<P>(&self, output_name: &P) -> Option<PathBuf>
