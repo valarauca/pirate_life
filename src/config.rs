@@ -1,8 +1,14 @@
 
-use std::{ process::Command, path::{Path,PathBuf}};
+use std::{
+    process::Command,
+    path::{Path,PathBuf},
+    collections::{HashMap}
+};
 
+use regex::{RegexSet};
 use serde::{Serialize,Deserialize};
 use toml::from_str;
+use win_canonicalize::canonicalize;
 
 use super::util::{config_path};
 use super::cli::{Cli};
@@ -29,7 +35,7 @@ impl Config {
 
         let download_path = self.disk.get_download_location(&cli.output_name);
         let reencode_path = self.disk.get_reencode_location(&cli.output_name);
-        let store_path = self.disk.get_final_location(&cli.output_name);
+        let store_path = self.disk.get_final_location(&cli.output_name,cli.override_output);
 
         // trigger the download
         self.aria2c.run_aria2c(cli.speed.clone(), &cli.url, &download_path);
@@ -100,7 +106,13 @@ impl Aria2c {
         if url.trim().starts_with("http") {
             return false;
         }
-        let input_path = Path::new(url);
+        let input_path_proper = match canonicalize(url) {
+            Ok(x) => x,
+            Err(e) => {
+                panic!("error:'{:?}' cannot canonicalize path:'{:?}'", e, url);
+            }
+        };
+        let input_path = Path::new(&input_path_proper);
         if !input_path.is_file() {
             return false;
         }
@@ -144,6 +156,7 @@ pub struct PropWriter {
 pub struct PathManager {
     temp_dir: PathBuf,
     store_dir: PathBuf,
+    preference: Option<HashMap<PathBuf,String>>,
 }
 
 impl PathManager {
@@ -169,15 +182,66 @@ impl PathManager {
         temp_location
     }
 
-    fn get_final_location<P>(&self, output_name: P) -> PathBuf
+    fn get_final_location<P>(&self, output_name: P, fixed_path: bool) -> PathBuf
     where
         P: AsRef<Path>
     {
-        let mut x = self.store_dir.clone();
-        x.push(output_name.as_ref().file_name().unwrap());
-        x
+
+        // check for fixed path override
+        if fixed_path {
+            match canonicalize(&output_name.as_ref().to_string_lossy()) {
+                Ok(x) => {
+                    let buf = PathBuf::from(x);
+                    if buf.has_root() {
+                        return buf;
+                    } else {
+                        panic!("cannont canonicalize:'{:?}'", output_name.as_ref());
+                    }
+                }
+                Err(e) => panic!("error:'{:?}' cannot canonicalize:'{:?}'", e, output_name.as_ref())
+            };
+        }
+
+        // set the default store location
+        let mut location = self.store_dir.clone();
+
+        // check if a peferential override is given
+        if let Some(preference) = self.preference_location(&output_name) {
+            location = preference;
+        }
+
+        
+        location.push(&output_name.as_ref().file_name().unwrap());
+        location
     }
 
+    fn preference_location<P>(&self, output_name: &P) -> Option<PathBuf>
+    where
+        P: AsRef<Path>
+    {
+        let data = match &self.preference {
+            &Option::None => return None,
+            &Option::Some(ref map) => {
+                map
+            }
+        };
+
+        let mut paths = Vec::with_capacity(data.len());
+        let mut regexes = Vec::with_capacity(data.len());
+        for (k,v) in data.iter() {
+            paths.push(PathBuf::from(k));
+            regexes.push(v);
+        }
+
+        let set = match RegexSet::new(regexes) {
+            Ok(set) => set,
+            Err(e) => panic!("failed to build regex set. {:?}", e)
+        };
+        match set.matches(&output_name.as_ref().to_string_lossy()).into_iter().next() {
+            Option::None => None,
+            Option::Some(x) => Some(PathBuf::from(&paths[x]))
+        }
+    }
 }
 
 

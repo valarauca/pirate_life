@@ -16,8 +16,10 @@ pub struct Cli {
     pub url: String,
     #[structopt(short = "o", long)]
     pub output_name: String,
-    #[structopt(long)]
+    #[structopt(short = "s", long)]
     pub speed: Option<u64>,
+    #[structopt(short = "f",long)]
+    pub override_output: bool,
 
     /*
      * Optional Flags
