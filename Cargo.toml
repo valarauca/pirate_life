@@ -12,3 +12,4 @@ paw = "1.0"
 serde = { version = "1.0", features=["derive"] }
 toml = "0.5"
 regex = "1.0"
+url = "2.2.2"

@@ -9,6 +9,7 @@ use config::Config;
 
 mod util;
 
+mod url;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::from_args();

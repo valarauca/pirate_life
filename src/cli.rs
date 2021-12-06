@@ -1,6 +1,7 @@
 use std::{ process::Command, path::Path };
 
 use structopt::StructOpt;
+use super::url::UrlLike;
 
 
 #[derive(StructOpt,Debug)]
@@ -13,7 +14,7 @@ pub struct Cli {
      */
 
     #[structopt(short = "u", long)]
-    pub url: String,
+    pub url: UrlLike,
     #[structopt(short = "o", long)]
     pub output_name: String,
     #[structopt(short = "s", long)]

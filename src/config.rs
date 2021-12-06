@@ -9,10 +9,11 @@ use std::{
 use regex::{RegexSet};
 use serde::{Serialize,Deserialize};
 use toml::from_str;
-use win_canonicalize::canonicalize;
+use win_canonicalize::{canonicalize, move_file};
 
 use super::util::{config_path};
 use super::cli::{Cli};
+use super::url::UrlLike;
 
 #[derive(Clone,Debug,Serialize,Deserialize,Default)]
 pub struct Config {
@@ -39,7 +40,14 @@ impl Config {
         let store_path = self.disk.get_final_location(&cli.output_name,cli.override_output);
 
         // trigger the download
-        self.aria2c.run_aria2c(cli.speed.clone(), &cli.url, &download_path);
+        match &cli.url {
+            &UrlLike::RemoteHTTP(ref url) => {
+                self.aria2c.run_aria2c(cli.speed.clone(), url.as_str(), &download_path);
+            },
+            &UrlLike::LocalFile(ref path) => {
+                move_file(path, download_path.as_path().to_string_lossy().as_ref(), false)?;
+            }
+        };
 
         // optionally re-encode
         if cli.perform_reencoding {
@@ -47,8 +55,7 @@ impl Config {
                 .status()?;
             cli.build_flags(&self.propwriter.path, &reencode_path)
                 .status()?;
-            std::fs::copy(&reencode_path, &store_path)?;
-            std::fs::remove_file(&reencode_path)?;
+            move_file(reencode_path.as_path().to_string_lossy().as_ref(), store_path.as_path().to_string_lossy().as_ref(), false)?;
         } else {
             cli.build_flags(&self.propwriter.path, &download_path)
                 .status()?;
@@ -70,10 +77,6 @@ pub struct Aria2c {
 impl Aria2c {
 
     fn run_aria2c(&self, speed: Option<u64>, url: &str, output: &Path) {
-        if self.skip_if_local_and_copy(url,output) {
-            //short cut to copy over file
-            return;
-        }
 
         let mut cmd = Command::new(&self.path);
         cmd.current_dir(output.parent().expect("could not recover parent"));
@@ -97,30 +100,6 @@ impl Aria2c {
                 Option::None => panic!("aira2c returned known error code"),
             },
             Err(e) => panic!("aira2c failed {:?}", e)
-        }
-    }
-
-    fn skip_if_local_and_copy(&self, url: &str, output: &Path) -> bool {
-        // this is a real URL
-        if url.trim().starts_with("http") {
-            return false;
-        }
-        let input_path_proper = match canonicalize(url) {
-            Ok(x) => x,
-            Err(e) => {
-                panic!("error:'{:?}' cannot canonicalize path:'{:?}'", e, url);
-            }
-        };
-        let input_path = Path::new(&input_path_proper);
-        if !input_path.is_file() {
-            return false;
-        }
-
-        match std::fs::copy(input_path,output) {
-            Ok(_) => true,
-            Err(e) => {
-                panic!("error:'{:?}' while copying:'{:?}' to:'{:?}'", e, input_path, output);
-            }
         }
     }
 }
@@ -242,12 +221,9 @@ impl PathManager {
 }
 
 
-fn to_name_and_extension<'a>(path: &'a Path) -> Option<(&'a str, &'a str)>
-{
-
+fn to_name_and_extension<'a>(path: &'a Path) -> Option<(&'a str, &'a str)> {
     let iter_1 = path.file_stem().into_iter().flat_map(|x| x.to_str());
     let iter_2 = path.extension().into_iter().flat_map(|x| x.to_str());
-
     iter_1.zip(iter_2)
         .next()
 }
