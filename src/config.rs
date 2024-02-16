@@ -68,6 +68,29 @@ impl Config {
     }
 }
 
+fn output_dir_exists(output: &Path) {
+    let output_dir = match output.parent() {
+        Option::Some(dir) => dir,
+        Option::None => panic!("could not get parent directory for output path:'{:?}'", output)
+    };
+    match std::fs::metadata(output_dir) {
+        Ok(_) => { },
+        Err(e) => {
+            match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    match std::fs::create_dir_all(output_dir) {
+                        Ok(_) => { },
+                        Err(e) => panic!("could not create output dirs for path:'{:?}' error:'{:?}'", output_dir, e)
+                    };
+                }
+                _ => {
+                    panic!("failed to read metadata of outputdir:'{:?}' error:'{:?}'", output_dir, e);
+                }
+            };
+        }
+    };
+}
+
 #[derive(Clone,Debug,Serialize,Deserialize,Default)]
 pub struct Aria2c {
     path: String,
@@ -78,7 +101,10 @@ impl Aria2c {
 
     fn run_aria2c(&self, speed: Option<u64>, url: &str, output: &Path) {
 
+        output_dir_exists(output);
+
         let mut cmd = Command::new(&self.path);
+
         cmd.current_dir(output.parent().expect("could not recover parent"));
         cmd.args(&self.default_args);
        
@@ -99,7 +125,7 @@ impl Aria2c {
                 Option::Some(x) => panic!("aria2c returned error {:?}", x),
                 Option::None => panic!("aira2c returned known error code"),
             },
-            Err(e) => panic!("aira2c failed {:?}", e)
+            Err(e) => panic!("aira2c failed, error:'{:?}', output_dir:'{:?}'", e, output.parent())
         }
     }
 }
